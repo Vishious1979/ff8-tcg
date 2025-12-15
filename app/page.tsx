@@ -31,23 +31,28 @@ export default function HomePage() {
   }, []);
 
   // Connexion Google
-  const handleLogin = async () => {
-    const { data, error } = await supabase.auth.signInWithOAuth({
-  provider: "google",
-  options: {
-    redirectTo: `${window.location.origin}/auth/callback`,
-  },
-});
+ const handleLogin = async () => {
+  const redirectUrl =
+    process.env.NEXT_PUBLIC_SITE_URL
+      ? `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`
+      : `${window.location.origin}/auth/callback`;
 
-    if (error) {
-      console.error("Erreur login :", error.message);
-      return;
-    }
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo: redirectUrl,
+    },
+  });
 
-    if (data?.url) {
-      window.location.href = data.url;
-    }
-  };
+  if (error) {
+    console.error("Erreur login :", error.message);
+  }
+
+  if (data?.url) {
+    window.location.href = data.url;
+  }
+};
+
 
 
 
