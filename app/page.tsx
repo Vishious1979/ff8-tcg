@@ -31,27 +31,19 @@ export default function HomePage() {
   }, []);
 
   // Connexion Google
- const handleLogin = async () => {
-  const redirectUrl =
-    process.env.NEXT_PUBLIC_SITE_URL
-      ? `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`
-      : `${window.location.origin}/auth/callback`;
-
-  const { data, error } = await supabase.auth.signInWithOAuth({
+const handleLogin = async () => {
+  const { error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: {
-      redirectTo: redirectUrl,
+      redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`,
     },
   });
 
   if (error) {
     console.error("Erreur login :", error.message);
   }
-
-  if (data?.url) {
-    window.location.href = data.url;
-  }
 };
+
 
 
 
