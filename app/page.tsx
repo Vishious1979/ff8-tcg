@@ -32,10 +32,10 @@ export default function HomePage() {
 
   // Connexion Google
 const handleLogin = async () => {
-  const { error } = await supabase.auth.signInWithOAuth({
+  const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: {
-      redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`,
+      redirectTo: "https://ff8-tcg.vercel.app/auth/callback",
     },
   });
 
@@ -43,6 +43,7 @@ const handleLogin = async () => {
     console.error("Erreur login :", error.message);
   }
 };
+
 
 
 
