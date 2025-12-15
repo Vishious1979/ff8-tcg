@@ -35,7 +35,7 @@ export default function HomePage() {
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: "http://localhost:3000",
+        redirectTo: window.location.origin,
       },
     });
 
@@ -48,6 +48,11 @@ export default function HomePage() {
       window.location.href = data.url;
     }
   };
+
+
+
+
+
 
   // Déconnexion
   const handleLogout = async () => {
