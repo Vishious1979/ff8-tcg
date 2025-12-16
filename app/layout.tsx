@@ -10,7 +10,7 @@ export default function RootLayout({
 }) {
   const pathname = usePathname();
 
-  // Pages SANS fond
+  // Pages SANS fond FF8
   const noBackgroundPages = ["/decks"];
 
   const hasBackground = !noBackgroundPages.some((p) =>
@@ -19,12 +19,11 @@ export default function RootLayout({
 
   return (
     <html lang="fr">
-      <body
-        className={`min-h-screen ${
-          hasBackground ? "ff8-bg" : "bg-black"
-        }`}
-      >
-        {children}
+      <body className={hasBackground ? "ff8-bg" : ""}>
+        {hasBackground && <div className="ff8-overlay" />}
+        <div style={{ position: "relative", zIndex: 1 }}>
+          {children}
+        </div>
       </body>
     </html>
   );
