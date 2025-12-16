@@ -9,18 +9,15 @@ export default function HomePage() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Charger l'utilisateur au départ
   useEffect(() => {
     const loadUser = async () => {
-      const { data, error } = await supabase.auth.getUser();
-      if (error) console.error("Erreur getUser :", error.message);
+      const { data } = await supabase.auth.getUser();
       setUser(data.user ?? null);
       setLoading(false);
     };
 
     loadUser();
 
-    // Écoute les changements d'état d'auth
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -30,116 +27,98 @@ export default function HomePage() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Connexion Google
-const handleLogin = async () => {
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: "google",
-    options: {
-      redirectTo: "https://ff8-tcg.vercel.app/auth/callback",
-    },
-  });
-
-  if (error) {
-    console.error("Erreur login :", error.message);
-  }
-};
-
-
-
-
-
-
-
-
-
-  // Déconnexion
-  const handleLogout = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) console.error("Erreur logout :", error.message);
+  const handleLogin = async () => {
+    await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: "https://ff8-tcg.vercel.app/auth/callback",
+      },
+    });
   };
 
-  // -----------------------------
-  // RENDER
-  // -----------------------------
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
 
   if (loading) {
     return (
       <main className="min-h-screen bg-black text-white flex items-center justify-center">
-        <p>Chargement...</p>
+        Chargement...
       </main>
     );
   }
 
-  // -----------------------------
-  // SI PAS CONNECTÉ → ÉCRAN LOGIN
-  // -----------------------------
-  if (!user) {
-    return (
-      <main className="min-h-screen bg-black text-white flex flex-col items-center justify-center gap-4 p-8">
-        <h1 className="text-3xl font-bold">FF8 TCG – Connexion</h1>
-        <p>Tu n&apos;es pas connecté.</p>
-
-        <button
-          onClick={handleLogin}
-          className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-500"
-        >
-          Se connecter avec Google
-        </button>
-      </main>
-    );
-  }
-
-  // -----------------------------
-  // SI CONNECTÉ → MENU PRINCIPAL
-  // -----------------------------
   return (
-    <main className="min-h-screen bg-black text-white flex flex-col items-center p-8 gap-8">
+    <main
+      className="min-h-screen bg-cover bg-center relative"
+      style={{ backgroundImage: "url('/images/ff8-cover.jpg')" }}
+    >
+      {/* Overlay sombre */}
+      <div className="absolute inset-0 bg-black/70" />
 
-      <div className="flex justify-between w-full max-w-4xl">
-        <p className="text-gray-300">Connecté : {user.email}</p>
-        <button
-          onClick={handleLogout}
-          className="px-3 py-1 rounded bg-red-600 text-white hover:bg-red-500 text-sm"
-        >
-          Déconnexion
-        </button>
+      {/* Contenu centré */}
+      <div className="relative z-10 min-h-screen flex items-center justify-center">
+        <div className="text-center text-white flex flex-col gap-6 w-full max-w-md px-6">
+
+          <h1 className="text-4xl font-bold tracking-wide drop-shadow-lg">
+            FF8 – Triple Triad
+          </h1>
+
+          {!user && (
+            <>
+              <p className="text-gray-300">Tu n&apos;es pas connecté.</p>
+
+              <button
+                onClick={handleLogin}
+                className="px-6 py-3 bg-blue-600 rounded-lg text-lg
+                  hover:scale-105 hover:bg-blue-500 hover:shadow-[0_0_15px_rgba(59,130,246,0.8)]
+                  transition-all duration-300"
+              >
+                Se connecter avec Google
+              </button>
+            </>
+          )}
+
+          {user && (
+            <>
+              <p className="text-sm text-gray-300">
+                Connecté : {user.email}
+              </p>
+
+              <nav className="flex flex-col gap-4 mt-4">
+                {[
+                  { href: "/cards", label: "📘 Voir toutes les cartes" },
+                  { href: "/decks", label: "🧩 Gérer mes decks" },
+                  { href: "/play", label: "▶️ Lancer une partie locale" },
+                  { href: "/rules", label: "📜 Règles du jeu" },
+                ].map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className="px-6 py-3 bg-gray-800 rounded-lg text-lg
+                      hover:scale-105 hover:text-blue-400
+                      hover:shadow-[0_0_15px_rgba(59,130,246,0.6)]
+                      transition-all duration-300"
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+              </nav>
+
+              <button
+                onClick={handleLogout}
+                className="mt-6 text-sm text-red-400 hover:text-red-300"
+              >
+                Déconnexion
+              </button>
+            </>
+          )}
+
+          <p className="text-xs text-gray-400 mt-4">
+            Mode multijoueur en ligne bientôt disponible ⚡
+          </p>
+        </div>
       </div>
-
-      <h1 className="text-4xl font-bold mb-4">FF8 – Triple Triad</h1>
-
-      <nav className="flex flex-col gap-4 text-center text-lg w-full max-w-md">
-        <Link
-          href="/cards"
-          className="px-4 py-2 bg-gray-800 rounded hover:bg-gray-700"
-        >
-          📘 Voir toutes les cartes
-        </Link>
-
-        <Link
-          href="/decks"
-          className="px-4 py-2 bg-gray-800 rounded hover:bg-gray-700"
-        >
-          🧩 Gérer mes decks
-        </Link>
-
-        <Link
-          href="/play"
-          className="px-4 py-2 bg-gray-800 rounded hover:bg-gray-700"
-        >
-          ▶️ Lancer une partie locale
-        </Link>
-
-        <Link
-          href="/rules"
-          className="px-4 py-2 bg-gray-800 rounded hover:bg-gray-700"
-        >
-          📜 Règles du jeu
-        </Link>
-      </nav>
-
-      <p className="text-sm text-gray-400 mt-4">
-        Mode en ligne multijoueur à venir ⚡
-      </p>
     </main>
   );
 }
