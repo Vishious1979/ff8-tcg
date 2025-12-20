@@ -1,8 +1,15 @@
 export default function RulesPage() {
   return (
-    <main className="min-h-screen bg-black text-white p-8">
-      <h1 className="text-2xl font-bold mb-4">Règles du jeu</h1>
-      <p>Les règles de Triple Triad seront ajoutées ici.</p>
+    <main className="min-h-screen flex items-center justify-center">
+      <section className="max-w-3xl bg-black/70 p-8 rounded">
+        <h1 className="text-3xl font-bold mb-4">
+          Règles du Triple Triad
+        </h1>
+
+        <p className="text-white/80">
+          Cette page contiendra les règles officielles du jeu Triple Triad.
+        </p>
+      </section>
     </main>
   );
 }

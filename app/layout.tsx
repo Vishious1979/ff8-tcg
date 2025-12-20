@@ -1,14 +1,19 @@
-"use client";
-
-import { usePathname } from "next/navigation";
 import "./globals.css";
+import { headers } from "next/headers";
+import type { ReactNode } from "react";
 
-export default function RootLayout({
+export const metadata = {
+  title: "FF8 – Triple Triad",
+  description: "Final Fantasy VIII Triple Triad",
+};
+
+export default async function RootLayout({
   children,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
-  const pathname = usePathname();
+  const headersList = await headers();
+  const pathname = headersList.get("x-pathname") || "";
 
   // Pages SANS fond FF8
   const noBackgroundPages = ["/decks"];

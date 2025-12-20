@@ -5,6 +5,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
+/* =======================
+   TYPES
+======================= */
+
 type Deck = {
   id: string;
   name: string;
@@ -24,24 +28,35 @@ type Card = {
   image_name: string | null;
 };
 
-// On garde un type souple ici pour éviter les galères de typage Supabase
 type DeckCard = any;
 
-type SortKey = "level" | "name" | "cost" | "top" | "right" | "bottom" | "left";
+type SortKey =
+  | "level"
+  | "name"
+  | "cost"
+  | "top"
+  | "right"
+  | "bottom"
+  | "left";
+
 type SortDir = "asc" | "desc";
+
+/* =======================
+   COMPONENT
+======================= */
 
 export default function DeckEditorPage() {
   const router = useRouter();
   const params = useParams() as { deckId?: string };
-  const deckId = params.deckId as string | undefined;
+  const deckId = params.deckId;
+  const isCreateMode = deckId === "create";
 
   const [deck, setDeck] = useState<Deck | null>(null);
+  const [deckName, setDeckName] = useState("");
   const [cards, setCards] = useState<Card[]>([]);
   const [deckCards, setDeckCards] = useState<DeckCard[]>([]);
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const [sortBy, setSortBy] = useState<SortKey>("level");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -50,86 +65,133 @@ export default function DeckEditorPage() {
     process.env.NEXT_PUBLIC_SUPABASE_URL +
     "/storage/v1/object/public/card-images";
 
-  // coût total = somme(cost * quantity)
-  const totalCost = useMemo(() => {
-    return deckCards.reduce(
-      (sum: number, dc: DeckCard) => sum + (dc.card?.cost ?? 0) * dc.quantity,
-      0
-    );
-  }, [deckCards]);
+  /* =======================
+     DERIVED
+  ======================= */
 
-  const remainingPoints = useMemo(
-    () => (deck ? deck.max_cost - totalCost : 0),
-    [deck, totalCost]
+  const totalCost = useMemo(
+    () =>
+      deckCards.reduce(
+        (sum, dc) => sum + (dc.card?.cost ?? 0) * dc.quantity,
+        0
+      ),
+    [deckCards]
+  );
+
+  const totalCards = useMemo(
+    () => deckCards.reduce((sum, dc) => sum + dc.quantity, 0),
+    [deckCards]
   );
 
   const selectedImageUrl =
-    selectedCard && selectedCard.image_name
+    selectedCard?.image_name
       ? `${imageBaseUrl}/${selectedCard.image_name}`
       : null;
 
-  // ===== CARTES FILTRÉES + TRI =====
-  const filteredSortedCards = useMemo(() => {
-    // 1) filtre sur points restants
-    let list = cards.filter((card) =>
-      remainingPoints > 0 ? card.cost <= remainingPoints : false
-    );
+  /* =======================
+     LOAD DATA
+  ======================= */
 
-    // 2) tri
-    list = [...list].sort((a, b) => {
-      const dirFactor = sortDir === "asc" ? 1 : -1;
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
 
-      let va: number | string;
-      let vb: number | string;
+      if (isCreateMode) {
+        setDeck({ id: "", name: "", max_cost: 100 });
+        setDeckName("");
 
-      switch (sortBy) {
-        case "level":
-          va = a.level;
-          vb = b.level;
-          break;
-        case "name":
-          va = a.name.toLowerCase();
-          vb = b.name.toLowerCase();
-          break;
-        case "cost":
-          va = a.cost;
-          vb = b.cost;
-          break;
-        case "top":
-          va = a.value_top;
-          vb = b.value_top;
-          break;
-        case "right":
-          va = a.value_right;
-          vb = b.value_right;
-          break;
-        case "bottom":
-          va = a.value_bottom;
-          vb = b.value_bottom;
-          break;
-        case "left":
-          va = a.value_left;
-          vb = b.value_left;
-          break;
-        default:
-          va = 0;
-          vb = 0;
+        const { data } = await supabase
+          .from("cards")
+          .select(
+            "id, code, name, level, cost, value_top, value_right, value_bottom, value_left, image_name"
+          )
+          .order("level", { ascending: true });
+
+        setCards(data ?? []);
+        setDeckCards([]);
+        setSelectedCard(null);
+        setLoading(false);
+        return;
       }
 
-      if (va < vb) return -1 * dirFactor;
-      if (va > vb) return 1 * dirFactor;
+      const { data: deckData } = await supabase
+        .from("decks")
+        .select("id, name, max_cost")
+        .eq("id", deckId)
+        .single();
+
+      if (!deckData) {
+        setLoading(false);
+        return;
+      }
+
+      setDeck(deckData);
+
+      const { data: cardsData } = await supabase
+        .from("cards")
+        .select(
+          "id, code, name, level, cost, value_top, value_right, value_bottom, value_left, image_name"
+        );
+
+      setCards(cardsData ?? []);
+
+      const { data: deckCardsData } = await supabase
+        .from("deck_cards")
+        .select(
+          "id, quantity, card:cards (id, name, level, cost, value_top, value_right, value_bottom, value_left, image_name)"
+        )
+        .eq("deck_id", deckId);
+
+      const normalized =
+        deckCardsData?.map((row: any) => ({
+          ...row,
+          card: Array.isArray(row.card) ? row.card[0] : row.card,
+        })) ?? [];
+
+      setDeckCards(normalized);
+      if (normalized.length > 0) {
+        setSelectedCard(normalized[0].card);
+      }
+
+      setLoading(false);
+    };
+
+    load();
+  }, [deckId, isCreateMode]);
+
+  /* =======================
+     SORT
+  ======================= */
+
+  const sortedCards = useMemo(() => {
+    const get = (c: Card) => {
+      switch (sortBy) {
+        case "name":
+          return c.name.toLowerCase();
+        case "cost":
+          return c.cost;
+        case "top":
+          return c.value_top;
+        case "right":
+          return c.value_right;
+        case "bottom":
+          return c.value_bottom;
+        case "left":
+          return c.value_left;
+        default:
+          return c.level;
+      }
+    };
+
+    return [...cards].sort((a, b) => {
+      const dir = sortDir === "asc" ? 1 : -1;
+      if (get(a) < get(b)) return -dir;
+      if (get(a) > get(b)) return dir;
       return 0;
     });
+  }, [cards, sortBy, sortDir]);
 
-    return list;
-  }, [cards, remainingPoints, sortBy, sortDir]);
-
-  const sortIndicator = (key: SortKey) => {
-    if (sortBy !== key) return "";
-    return sortDir === "asc" ? " ▲" : " ▼";
-  };
-
-  const handleHeaderClick = (key: SortKey) => {
+  const toggleSort = (key: SortKey) => {
     if (sortBy === key) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
@@ -138,225 +200,103 @@ export default function DeckEditorPage() {
     }
   };
 
-  // ===== CHARGEMENT INITIAL : deck + cartes + deck_cards =====
-  useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      setErrorMsg(null);
+  const indicator = (key: SortKey) =>
+    sortBy === key ? (sortDir === "asc" ? " ▲" : " ▼") : "";
 
-      if (!deckId) {
-        setErrorMsg("Deck introuvable (URL invalide).");
-        setLoading(false);
-        return;
-      }
+  /* =======================
+     ACTIONS
+  ======================= */
 
-      // 1) charger le deck
-      const { data: deckData, error: deckError } = await supabase
-        .from("decks")
-        .select("id, name, max_cost")
-        .eq("id", deckId)
-        .single();
-
-      if (deckError || !deckData) {
-        console.error(deckError);
-        setErrorMsg("Deck introuvable ou accès refusé.");
-        setLoading(false);
-        return;
-      }
-
-      setDeck(deckData as Deck);
-
-      // 2) cartes disponibles (avec stats + image)
-      const { data: cardsData, error: cardsError } = await supabase
-        .from("cards")
-        .select(
-          "id, code, name, level, cost, value_top, value_right, value_bottom, value_left, image_name"
-        )
-        .order("level", { ascending: true })
-        .order("code", { ascending: true });
-
-      if (cardsError) {
-        console.error(cardsError);
-        setErrorMsg("Impossible de charger les cartes.");
-        setLoading(false);
-        return;
-      }
-
-      const allCards = (cardsData as Card[]) ?? [];
-      setCards(allCards);
-
-      // 3) cartes du deck (avec jointure sur cards)
-      const { data: deckCardsData, error: deckCardsError } = await supabase
-        .from("deck_cards")
-        .select(
-          "id, deck_id, card_id, quantity, card:cards (id, code, name, level, cost, value_top, value_right, value_bottom, value_left, image_name)"
-        )
-        .eq("deck_id", deckId);
-
-      if (deckCardsError) {
-        console.error(deckCardsError);
-        setErrorMsg("Impossible de charger les cartes du deck.");
-        setLoading(false);
-        return;
-      }
-
-      const normalized =
-        (deckCardsData as DeckCard[])?.map((row: any) => ({
-          ...row,
-          card: Array.isArray(row.card) ? row.card[0] : row.card,
-        })) ?? [];
-
-      setDeckCards(normalized);
-
-      if (normalized.length > 0) {
-        setSelectedCard(normalized[0].card as Card);
-      }
-
-      setLoading(false);
-    };
-
-    load();
-  }, [deckId]);
-
-  // ===== AJOUT DE CARTE DANS LE DECK =====
-  const handleAddCard = async (card: Card) => {
-    if (!deck || !deckId) return;
-
-    const newTotal = totalCost + card.cost;
-    if (newTotal > deck.max_cost) {
-      alert(
-        `Tu dépasses le budget max (${deck.max_cost}). Coût actuel : ${totalCost}, carte : ${card.cost}.`
-      );
+  const handleAddCard = (card: Card) => {
+    if (totalCards >= 5) {
+      alert("Un deck contient 5 cartes maximum.");
       return;
     }
 
-    setSaving(true);
-
-    const existing = deckCards.find((dc: DeckCard) => dc.card_id === card.id);
-
-    if (!existing) {
-      const { data, error } = await supabase
-        .from("deck_cards")
-        .insert({
-          deck_id: deckId,
-          card_id: card.id,
-          quantity: 1,
-        })
-        .select(
-          "id, deck_id, card_id, quantity, card:cards (id, code, name, level, cost, value_top, value_right, value_bottom, value_left, image_name)"
-        )
-        .single();
-
-      setSaving(false);
-
-      if (error) {
-        console.error(error);
-        alert("Erreur lors de l'ajout de la carte.");
-        return;
-      }
-
-      const row: any = data;
-      const normalized = {
-        ...row,
-        card: Array.isArray(row.card) ? row.card[0] : row.card,
-      };
-
-      setDeckCards((prev) => [...prev, normalized]);
-    } else {
-      const { data, error } = await supabase
-        .from("deck_cards")
-        .update({ quantity: existing.quantity + 1 })
-        .eq("id", existing.id)
-        .select(
-          "id, deck_id, card_id, quantity, card:cards (id, code, name, level, cost, value_top, value_right, value_bottom, value_left, image_name)"
-        )
-        .single();
-
-      setSaving(false);
-
-      if (error) {
-        console.error(error);
-        alert("Erreur lors de la mise à jour de la carte.");
-        return;
-      }
-
-      const row: any = data;
-      const normalized = {
-        ...row,
-        card: Array.isArray(row.card) ? row.card[0] : row.card,
-      };
-
-      setDeckCards((prev) =>
-        prev.map((dc: DeckCard) => (dc.id === existing.id ? normalized : dc))
-      );
+    if (totalCost + card.cost > 100) {
+      alert("Le deck ne peut pas dépasser 100 points.");
+      return;
     }
+
+    setDeckCards((prev) => {
+      const existing = prev.find((dc) => dc.card.id === card.id);
+      if (!existing) {
+        return [...prev, { id: `local-${card.id}`, quantity: 1, card }];
+      }
+      return prev.map((dc) =>
+        dc.card.id === card.id
+          ? { ...dc, quantity: dc.quantity + 1 }
+          : dc
+      );
+    });
+
+    setSelectedCard(card);
   };
 
-  // ===== RETIRER UNE CARTE DU DECK =====
-  const handleRemoveCard = async (deckCard: DeckCard) => {
-    setSaving(true);
-
-    if (deckCard.quantity <= 1) {
-      const { error } = await supabase
-        .from("deck_cards")
-        .delete()
-        .eq("id", deckCard.id);
-
-      setSaving(false);
-
-      if (error) {
-        console.error(error);
-        alert("Erreur lors de la suppression de la carte.");
-        return;
-      }
-
-      setDeckCards((prev) =>
-        prev.filter((dc: DeckCard) => dc.id !== deckCard.id)
-      );
-    } else {
-      const { data, error } = await supabase
-        .from("deck_cards")
-        .update({ quantity: deckCard.quantity - 1 })
-        .eq("id", deckCard.id)
-        .select(
-          "id, deck_id, card_id, quantity, card:cards (id, code, name, level, cost, value_top, value_right, value_bottom, value_left, image_name)"
-        )
-        .single();
-
-      setSaving(false);
-
-      if (error) {
-        console.error(error);
-        alert("Erreur lors de la mise à jour de la carte.");
-        return;
-      }
-
-      const row: any = data;
-      const normalized = {
-        ...row,
-        card: Array.isArray(row.card) ? row.card[0] : row.card,
-      };
-
-      setDeckCards((prev) =>
-        prev.map((dc: DeckCard) => (dc.id === deckCard.id ? normalized : dc))
-      );
-    }
-  };
-
-  // ===== RENDU =====
-
-  if (loading) {
-    return (
-      <main className="min-h-screen p-8 bg-black text-white">
-        <p>Chargement du deck...</p>
-      </main>
+  const handleRemoveCard = (dc: DeckCard) => {
+    setDeckCards((prev) =>
+      dc.quantity <= 1
+        ? prev.filter((x) => x.id !== dc.id)
+        : prev.map((x) =>
+            x.id === dc.id ? { ...x, quantity: x.quantity - 1 } : x
+          )
     );
-  }
+  };
 
-  if (!deck) {
+  const handleCreateDeck = async () => {
+    if (!deckName.trim()) {
+      alert("Le deck doit avoir un nom.");
+      return;
+    }
+
+    if (totalCards !== 5) {
+      alert("Le deck doit contenir exactement 5 cartes.");
+      return;
+    }
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      alert("Connexion requise.");
+      return;
+    }
+
+    const { data: deckData, error } = await supabase
+      .from("decks")
+      .insert({
+        name: deckName,
+        max_cost: 100,
+        user_id: user.id,
+      })
+      .select()
+      .single();
+
+    if (error || !deckData) {
+      alert("Erreur lors de la création du deck.");
+      return;
+    }
+
+    await supabase.from("deck_cards").insert(
+      deckCards.map((dc) => ({
+        deck_id: deckData.id,
+        card_id: dc.card.id,
+        quantity: dc.quantity,
+      }))
+    );
+
+    router.push(`/decks/${deckData.id}`);
+  };
+
+  /* =======================
+     RENDER
+  ======================= */
+
+  if (loading || !deck) {
     return (
       <main className="min-h-screen p-8 bg-black text-white">
-        <p>Deck introuvable.</p>
+        Chargement…
       </main>
     );
   }
@@ -371,273 +311,100 @@ export default function DeckEditorPage() {
       </button>
 
       <div className="flex items-baseline justify-between">
-        <h1 className="text-3xl font-bold">{deck.name}</h1>
+        {isCreateMode ? (
+          <input
+            value={deckName}
+            onChange={(e) => setDeckName(e.target.value)}
+            placeholder="Nom du deck"
+            className="text-3xl font-bold bg-transparent border-b border-gray-600 focus:outline-none"
+          />
+        ) : (
+          <h1 className="text-3xl font-bold">{deck.name}</h1>
+        )}
+
         <div className="text-right text-sm">
-          <p>
-            Coût total :{" "}
-            <span
-              className={
-                totalCost > deck.max_cost
-                  ? "text-red-400 font-bold"
-                  : "text-green-400 font-bold"
-              }
-            >
-              {totalCost} / {deck.max_cost}
-            </span>
-          </p>
-          <p className="text-xs text-gray-300">
-            Points restants :{" "}
-            <span
-              className={
-                remainingPoints < 0
-                  ? "text-red-400 font-bold"
-                  : "text-green-400 font-bold"
-              }
-            >
-              {remainingPoints}
-            </span>
-          </p>
-          {saving && <p className="text-xs text-gray-400">Sauvegarde...</p>}
+          <p>Coût : {totalCost} / 100</p>
+          <p>Cartes : {totalCards} / 5</p>
         </div>
       </div>
 
-      {errorMsg && <p className="text-red-400">{errorMsg}</p>}
+      {isCreateMode && (
+        <button
+          onClick={handleCreateDeck}
+          disabled={totalCards !== 5}
+          className="w-fit px-4 py-2 bg-green-600 rounded disabled:opacity-50"
+        >
+          Créer le deck
+        </button>
+      )}
 
       <div className="flex gap-8">
-        {/* Cartes disponibles */}
         <div className="flex-1">
-          <h2 className="text-xl font-semibold mb-2">
-            Cartes disponibles (coût ≤ points restants)
-          </h2>
-          <p className="text-xs text-gray-400 mb-2">
-            Clique sur une ligne pour voir la carte, puis sur &quot;Ajouter&quot;
-            pour l&apos;ajouter au deck. Clique sur les en-têtes pour trier.
-          </p>
-          <div className="max-h-[70vh] overflow-auto border border-gray-700 rounded">
-            <table className="w-full border-collapse text-xs">
-              <thead>
-                <tr className="border-b border-gray-700">
-                  <th
-                    className="py-1 text-left cursor-pointer"
-                    onClick={() => handleHeaderClick("level")}
-                  >
-                    Lvl{sortIndicator("level")}
-                  </th>
-                  <th
-                    className="py-1 text-left cursor-pointer"
-                    onClick={() => handleHeaderClick("name")}
-                  >
-                    Nom{sortIndicator("name")}
-                  </th>
-                  <th
-                    className="py-1 text-left cursor-pointer"
-                    onClick={() => handleHeaderClick("cost")}
-                  >
-                    Coût{sortIndicator("cost")}
-                  </th>
-                  <th
-                    className="py-1 text-left cursor-pointer"
-                    onClick={() => handleHeaderClick("top")}
-                  >
-                    Haut{sortIndicator("top")}
-                  </th>
-                  <th
-                    className="py-1 text-left cursor-pointer"
-                    onClick={() => handleHeaderClick("right")}
-                  >
-                    Droite{sortIndicator("right")}
-                  </th>
-                  <th
-                    className="py-1 text-left cursor-pointer"
-                    onClick={() => handleHeaderClick("bottom")}
-                  >
-                    Bas{sortIndicator("bottom")}
-                  </th>
-                  <th
-                    className="py-1 text-left cursor-pointer"
-                    onClick={() => handleHeaderClick("left")}
-                  >
-                    Gauche{sortIndicator("left")}
-                  </th>
-                  <th className="py-1" />
+          <table className="w-full text-xs border border-gray-700 rounded">
+            <thead>
+              <tr className="border-b border-gray-700">
+                <th className="w-12 px-2 py-1 text-center cursor-pointer" onClick={() => toggleSort("level")}>Lvl{indicator("level")}</th>
+                <th className="w-[260px] px-2 py-1 text-left cursor-pointer" onClick={() => toggleSort("name")}>Nom{indicator("name")}</th>
+                <th className="w-16 px-2 py-1 text-center cursor-pointer" onClick={() => toggleSort("cost")}>Coût{indicator("cost")}</th>
+                <th className="w-12 px-2 py-1 text-center cursor-pointer" onClick={() => toggleSort("top")}>H{indicator("top")}</th>
+                <th className="w-12 px-2 py-1 text-center cursor-pointer" onClick={() => toggleSort("right")}>D{indicator("right")}</th>
+                <th className="w-12 px-2 py-1 text-center cursor-pointer" onClick={() => toggleSort("bottom")}>B{indicator("bottom")}</th>
+                <th className="w-12 px-2 py-1 text-center cursor-pointer" onClick={() => toggleSort("left")}>G{indicator("left")}</th>
+                <th className="w-24 px-2 py-1"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedCards.map((card) => (
+                <tr
+                  key={card.id}
+                  className="border-b border-gray-800 hover:bg-gray-900 cursor-pointer"
+                  onClick={() => setSelectedCard(card)}
+                >
+                  <td className="w-12 px-2 py-1 text-center">{card.level}</td>
+                  <td className="w-[260px] px-2 py-1 text-left truncate">{card.name}</td>
+                  <td className="w-16 px-2 py-1 text-center">{card.cost}</td>
+                  <td className="w-12 px-2 py-1 text-center">{card.value_top}</td>
+                  <td className="w-12 px-2 py-1 text-center">{card.value_right}</td>
+                  <td className="w-12 px-2 py-1 text-center">{card.value_bottom}</td>
+                  <td className="w-12 px-2 py-1 text-center">{card.value_left}</td>
+                  <td className="w-24 px-2 py-1 text-right">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleAddCard(card);
+                      }}
+                      className="px-2 py-1 bg-blue-600 rounded text-xs"
+                    >
+                      Ajouter
+                    </button>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {filteredSortedCards.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={8}
-                      className="py-2 text-center text-gray-500"
-                    >
-                      Aucune carte disponible avec les points restants.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredSortedCards.map((card) => (
-                    <tr
-                      key={card.id}
-                      className="border-b border-gray-800 hover:bg-gray-900 cursor-pointer"
-                      onClick={() => setSelectedCard(card)}
-                    >
-                      <td className="py-1">{card.level}</td>
-                      <td className="py-1">{card.name}</td>
-                      <td className="py-1">{card.cost}</td>
-                      <td className="py-1">{card.value_top}</td>
-                      <td className="py-1">{card.value_right}</td>
-                      <td className="py-1">{card.value_bottom}</td>
-                      <td className="py-1">{card.value_left}</td>
-                      <td className="py-1 text-right">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleAddCard(card);
-                          }}
-                          disabled={saving}
-                          className="px-2 py-1 text-xs rounded bg-blue-600 text-white disabled:opacity-50"
-                        >
-                          Ajouter
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </table>
         </div>
 
-        {/* Préview + contenu du deck */}
-        <div className="w-96 space-y-4 sticky top-8 self-start">
-          {/* Preview carte */}
-          <div className="border border-gray-700 rounded p-4 bg-black">
-            <h2 className="text-xl font-semibold mb-2">Prévisualisation</h2>
-
-            {!selectedCard ? (
-              <p className="text-sm text-gray-400">
-                Sélectionne une carte dans la liste.
-              </p>
-            ) : (
-              <div className="flex flex-col items-center">
-                <p className="text-lg mb-2 font-bold">{selectedCard.name}</p>
-
-                {selectedImageUrl && (
-                  <img
-                    src={selectedImageUrl}
-                    alt={selectedCard.name}
-                    className="w-64 h-auto rounded border border-gray-600 mb-4"
-                  />
-                )}
-
-                {!selectedImageUrl && (
-                  <p className="text-xs text-gray-400 mb-2">
-                    Image introuvable.
-                  </p>
-                )}
-
-                <div className="text-sm text-gray-300 w-full">
-                  <p>
-                    <strong>Niveau :</strong> {selectedCard.level}
-                  </p>
-
-                  <p className="mt-2">
-                    <strong>Valeurs :</strong>
-                  </p>
-                  <ul className="ml-4">
-                    <li>Haut : {selectedCard.value_top}</li>
-                    <li>Droite : {selectedCard.value_right}</li>
-                    <li>Bas : {selectedCard.value_bottom}</li>
-                    <li>Gauche : {selectedCard.value_left}</li>
-                  </ul>
-
-                  <p className="mt-2">
-                    <strong>Coût dans un deck :</strong> {selectedCard.cost}
-                  </p>
-                </div>
-              </div>
-            )}
+        <div className="w-96 sticky top-8 space-y-4">
+          <div className="border border-gray-700 p-4 rounded">
+            <h2 className="font-semibold mb-2">Prévisualisation</h2>
+            {selectedImageUrl && <img src={selectedImageUrl} alt="" />}
           </div>
 
-          {/* Contenu du deck */}
-          <div className="border border-gray-700 rounded p-4 bg-black">
-            <h2 className="text-xl font-semibold mb-2">Cartes du deck</h2>
-            {deckCards.length === 0 ? (
-              <p className="text-sm text-gray-400">
-                Aucune carte dans ce deck pour l&apos;instant.
-              </p>
-            ) : (
-              <table className="w-full border-collapse text-xs max-h-[40vh] overflow-auto">
-                <thead>
-                  <tr className="border-b border-gray-700">
-                    <th className="py-1 text-left">x</th>
-                    <th className="py-1 text-left">Nom</th>
-                    <th className="py-1 text-left">Coût</th>
-                    <th className="py-1 text-left">H</th>
-                    <th className="py-1 text-left">D</th>
-                    <th className="py-1 text-left">B</th>
-                    <th className="py-1 text-left">G</th>
-                    <th className="py-1" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {deckCards.map((dc: DeckCard) => (
-                    <tr
-                      key={dc.id}
-                      className="border-b border-gray-800 hover:bg-gray-900 cursor-pointer"
-                      onClick={() =>
-                        dc.card ? setSelectedCard(dc.card as Card) : null
-                      }
-                    >
-                      <td className="py-1">{dc.quantity}</td>
-                      <td className="py-1">{dc.card?.name}</td>
-                      <td className="py-1">{dc.card?.cost}</td>
-                      <td className="py-1">{dc.card?.value_top}</td>
-                      <td className="py-1">{dc.card?.value_right}</td>
-                      <td className="py-1">{dc.card?.value_bottom}</td>
-                      <td className="py-1">{dc.card?.value_left}</td>
-                      <td className="py-1 text-right">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleRemoveCard(dc);
-                          }}
-                          disabled={saving}
-                          className="px-2 py-0.5 text-xs rounded bg-red-600 text-white disabled:opacity-50"
-                        >
-                          -1
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-
-            <div className="mt-4 text-sm">
-              <p>
-                Coût total :{" "}
-                <span
-                  className={
-                    totalCost > deck.max_cost
-                      ? "text-red-400 font-bold"
-                      : "text-green-400 font-bold"
-                  }
-                >
-                  {totalCost} / {deck.max_cost}
+          <div className="border border-gray-700 p-4 rounded">
+            <h2 className="font-semibold mb-2">Deck</h2>
+            {deckCards.map((dc) => (
+              <div key={dc.id} className="flex justify-between text-xs">
+                <span>
+                  {dc.quantity} × {dc.card.name}
                 </span>
-              </p>
-              <p>
-                Points restants :{" "}
-                <span
-                  className={
-                    remainingPoints < 0
-                      ? "text-red-400 font-bold"
-                      : "text-green-400 font-bold"
-                  }
+                <button
+                  onClick={() => handleRemoveCard(dc)}
+                  className="text-red-400"
                 >
-                  {remainingPoints}
-                </span>
-              </p>
-            </div>
+                  -1
+                </button>
+              </div>
+            ))}
           </div>
         </div>
       </div>
