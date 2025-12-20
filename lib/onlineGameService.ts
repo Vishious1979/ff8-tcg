@@ -1,6 +1,8 @@
 // lib/onlineGameService.ts
 import { supabase } from "@/lib/supabaseClient";
 import type { GameState } from "@/types/gameOnline";
+import type { BoardCell } from "@/types/game";
+import type { Card } from "@/types/game";
 
 export type GameMeta = {
   id: string;
@@ -11,22 +13,42 @@ export type GameMeta = {
 };
 
 /**
- * Crée une nouvelle partie avec le deck du joueur 1.
- * - gameId : id de room (crypto.randomUUID côté client)
- * - deckIdP1 : deck choisi par le joueur 1
+ * Création de l'état initial du jeu
+ */
+function createInitialState(): GameState {
+  const emptyBoard: BoardCell[] = Array.from({ length: 9 }, () => ({
+    card: null,
+    owner: null,
+  }));
+
+  return {
+    board: emptyBoard,
+    hands: {
+      1: [] as Card[],
+      2: [] as Card[],
+    },
+    currentPlayer: 1,
+    winner: null,
+    secondsLeft: 30,
+  };
+}
+
+/**
+ * Crée une nouvelle partie avec le deck du joueur 1
  */
 export async function createGame(
   gameId: string,
   deckIdP1: string
 ): Promise<void> {
+  const initialState = createInitialState();
+
   const { error } = await supabase.from("tcg_games").insert({
     id: gameId,
-    // ⬇️ on continue d'alimenter l’ancien champ
-    deck_id: deckIdP1,      // <-- important pour NOT NULL / policies existantes
+    deck_id: deckIdP1,      // compat policies existantes
     deck_id_p1: deckIdP1,
     deck_id_p2: null,
-    state: null,
-    status: "waiting",
+    state: initialState,    // ✅ ÉTAT INITIAL CRÉÉ ICI
+    status: "active",
   });
 
   if (error) {
@@ -35,9 +57,8 @@ export async function createGame(
   }
 }
 
-
 /**
- * Charge la partie complète (deck P1/P2 + state + status)
+ * Charge la partie complète
  */
 export async function loadGame(gameId: string): Promise<GameMeta | null> {
   const { data, error } = await supabase
@@ -63,7 +84,7 @@ export async function loadGame(gameId: string): Promise<GameMeta | null> {
 }
 
 /**
- * Met à jour l'état de la partie (utilisé à chaque coup).
+ * Sauvegarde de l'état à chaque coup
  */
 export async function saveGameState(
   gameId: string,
@@ -84,8 +105,7 @@ export async function saveGameState(
 }
 
 /**
- * Utilisé quand le joueur 2 choisit son deck et qu'on initialise la partie.
- * On fixe deck_id_p2 et l'état initial en même temps.
+ * (optionnel plus tard) joueur 2 choisit son deck
  */
 export async function setDeckP2AndInitialState(
   gameId: string,

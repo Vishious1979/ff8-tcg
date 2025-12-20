@@ -17,7 +17,7 @@ export default function DecksPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [creatingGameId, setCreatingGameId] = useState<string | null>(null);
   const [deletingDeckId, setDeletingDeckId] = useState<string | null>(null);
-
+  const [shareGameUrl, setShareGameUrl] = useState<string | null>(null);
   const router = useRouter();
 
   // =========================
@@ -50,18 +50,21 @@ export default function DecksPage() {
   // =========================
   // CRÉER UNE PARTIE
   // =========================
-  const handleCreateGame = async (deckId: string) => {
-    try {
-      const gameId = crypto.randomUUID();
-      setCreatingGameId(gameId);
-      await createGame(gameId, deckId);
-      router.push(`/play/${gameId}?p=1`);
-    } catch (e) {
-      console.error(e);
-      setErrorMsg("Impossible de créer la partie.");
-      setCreatingGameId(null);
-    }
-  };
+const handleCreateGame = async (deckId: string) => {
+  try {
+    const gameId = crypto.randomUUID();
+    setCreatingGameId(gameId);
+
+    await createGame(gameId, deckId);
+
+    const url = `${window.location.origin}/play/${gameId}?p=2`;
+    setShareGameUrl(url);
+  } catch (e) {
+    console.error(e);
+    setErrorMsg("Impossible de créer la partie.");
+    setCreatingGameId(null);
+  }
+};
 
   // =========================
   // SUPPRIMER UN DECK
@@ -181,6 +184,48 @@ export default function DecksPage() {
           </div>
         ))}
       </div>
+
+{shareGameUrl && (
+  <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+    <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 w-full max-w-md space-y-4">
+      <h2 className="text-lg font-bold">Inviter un joueur</h2>
+
+      <p className="text-sm text-gray-300">
+        Envoie ce lien au second joueur :
+      </p>
+
+      <input
+        readOnly
+        value={shareGameUrl}
+        className="w-full px-3 py-2 bg-black border border-gray-600 rounded text-sm"
+        onFocus={(e) => e.target.select()}
+      />
+
+      <div className="flex justify-between">
+        <button
+          onClick={() => {
+            const gameId = shareGameUrl.split("/play/")[1].split("?")[0];
+            router.push(`/play/${gameId}?p=1`);
+          }}
+          className="px-4 py-2 bg-blue-600 rounded"
+        >
+          Lancer la partie (J1)
+        </button>
+
+        <button
+          onClick={() => {
+            setShareGameUrl(null);
+            setCreatingGameId(null);
+          }}
+          className="px-4 py-2 bg-slate-700 rounded"
+        >
+          Fermer
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
     </main>
   );
 }

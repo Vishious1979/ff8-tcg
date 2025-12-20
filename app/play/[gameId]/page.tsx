@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { loadGame } from "@/lib/onlineGameService";
 
 import { Player, Card, BoardCell } from "@/types/game";
 import type { GameState } from "@/types/gameOnline";
@@ -10,19 +11,30 @@ import type { GameState } from "@/types/gameOnline";
 import Board from "@/components/game/Board";
 import PlayerHand from "@/components/game/PlayerHand";
 
-// 🔒 Typage STRICT de la ligne Supabase
+/* =========================
+   TYPES
+========================= */
+
 type TcgGameRow = {
   id: string;
   state: GameState | null;
 };
 
-export default function GamePage() {
-  const params = useParams() as { gameId: string };
-  const gameId = params.gameId;
+/* =========================
+   COMPONENT
+========================= */
 
+export default function GamePage() {
+  const { gameId } = useParams() as { gameId: string };
   const searchParams = useSearchParams();
+  const router = useRouter();
+
   const clientPlayer: Player =
     searchParams.get("p") === "2" ? 2 : 1;
+
+  /* =========================
+     STATE
+  ========================= */
 
   const [board, setBoard] = useState<BoardCell[]>([]);
   const [hands, setHands] = useState<{ 1: Card[]; 2: Card[] } | null>(null);
@@ -35,33 +47,50 @@ export default function GamePage() {
     process.env.NEXT_PUBLIC_SUPABASE_URL +
     "/storage/v1/object/public/card-images";
 
-  // =============================
-  // CHARGEMENT INITIAL
-  // =============================
+  /* =========================
+     HUD
+  ========================= */
+
+  const scoreP1 = board.filter((c) => c.owner === 1).length;
+  const scoreP2 = board.filter((c) => c.owner === 2).length;
+
+  /* =========================
+     LOAD GAME
+  ========================= */
+
   useEffect(() => {
     const load = async () => {
-      const { data } = await supabase
-        .from("tcg_games")
-        .select("state")
-        .eq("id", gameId)
-        .maybeSingle();
+      const game = await loadGame(gameId);
 
-      const state = (data as TcgGameRow | null)?.state;
-      if (!state) return;
+      if (!game) {
+        setLoading(false);
+        return;
+      }
 
-      setBoard(state.board);
-      setHands(state.hands);
-      setCurrentPlayer(state.currentPlayer);
-      setWinner(state.winner);
+      if (clientPlayer === 2 && !game.deck_id_p2) {
+        router.push(`/play/${gameId}/join`);
+        return;
+      }
+
+      if (!game.state) {
+        setLoading(false);
+        return;
+      }
+
+      setBoard(game.state.board);
+      setHands(game.state.hands);
+      setCurrentPlayer(game.state.currentPlayer);
+      setWinner(game.state.winner);
       setLoading(false);
     };
 
     load();
-  }, [gameId]);
+  }, [gameId, clientPlayer, router]);
 
-  // =============================
-  // REALTIME (SANS any)
-  // =============================
+  /* =========================
+     REALTIME
+  ========================= */
+
   useEffect(() => {
     const channel = supabase
       .channel(`game-${gameId}`)
@@ -91,9 +120,10 @@ export default function GamePage() {
     };
   }, [gameId]);
 
-  // =============================
-  // PLAY MOVE (ULTRA CLAIR)
-  // =============================
+  /* =========================
+     PLAY MOVE
+  ========================= */
+
   const playMove = async (cardIndex: number, cellIndex: number) => {
     if (!hands || winner) return;
     if (currentPlayer !== clientPlayer) return;
@@ -102,7 +132,6 @@ export default function GamePage() {
     const card = hands[currentPlayer][cardIndex];
     if (!card) return;
 
-    // clone board
     const newBoard: BoardCell[] = board.map((c) => ({
       card: c.card,
       owner: c.owner,
@@ -150,7 +179,8 @@ export default function GamePage() {
     const nextState: GameState = {
       board: newBoard,
       hands: newHands,
-      currentPlayer: nextWinner ? currentPlayer : currentPlayer === 1 ? 2 : 1,
+      currentPlayer:
+        nextWinner ? currentPlayer : currentPlayer === 1 ? 2 : 1,
       winner: nextWinner,
       secondsLeft: 30,
     };
@@ -167,45 +197,87 @@ export default function GamePage() {
       .eq("id", gameId);
   };
 
-  // =============================
-  // RENDER
-  // =============================
+  /* =========================
+     RENDER
+  ========================= */
+
   if (loading || !hands) {
     return <div className="text-white p-8">Chargement…</div>;
   }
 
   return (
-    <main className="h-screen w-screen bg-black grid grid-cols-3 text-white">
-      <PlayerHand
-        player={1}
-        cards={hands[1]}
-        currentPlayer={currentPlayer}
-        selectedIndex={selectedIndex}
-        onSelectCard={(i) => setSelectedIndex(i)}
-        imageBaseUrl={imageBaseUrl}
-        cardWidth={150}
-        cardHeight={210}
-      />
+    <main
+      className="h-screen w-screen text-white flex flex-col"
+      style={{
+        backgroundImage: "url(/images/bg-ff8.jpg)",
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+      }}
+    >
+      {/* HUD */}
+      <div className="flex justify-between items-center px-8 py-4 bg-black/70">
+        <div className="text-blue-400 font-bold">
+          Joueur 1 — Score {scoreP1}
+        </div>
 
-      <Board
-        board={board}
-        onCellClick={(i) => selectedIndex !== null && playMove(selectedIndex, i)}
-        imageBaseUrl={imageBaseUrl}
-        cellWidth={150}
-        cellHeight={210}
-      />
+        <div className="text-center">
+          {winner ? (
+            <span className="text-xl font-bold text-green-400">
+              {winner === "draw" ? "Égalité" : `Victoire J${winner}`}
+            </span>
+          ) : (
+            <span>
+              Tour du joueur{" "}
+              <strong className="text-yellow-400">
+                J{currentPlayer}
+              </strong>
+            </span>
+          )}
+        </div>
 
-      <PlayerHand
-        player={2}
-        cards={hands[2]}
-        currentPlayer={currentPlayer}
-        selectedIndex={selectedIndex}
-        onSelectCard={(i) => setSelectedIndex(i)}
-        imageBaseUrl={imageBaseUrl}
-        cardWidth={150}
-        cardHeight={210}
-      />
+        <div className="text-red-400 font-bold">
+          Joueur 2 — Score {scoreP2}
+        </div>
+      </div>
+
+      {/* GAME */}
+      <div className="flex-1 grid grid-cols-3 place-items-center bg-black/50">
+        <PlayerHand
+          player={1}
+          cards={hands[1]}
+          currentPlayer={currentPlayer}
+          selectedIndex={selectedIndex}
+          onSelectCard={setSelectedIndex}
+          imageBaseUrl={imageBaseUrl}
+          cardWidth={150}
+          cardHeight={210}
+        />
+
+        <div className="p-6 bg-black/40 rounded-xl">
+          <Board
+            board={board}
+            onCellClick={(i) => {
+              if (selectedIndex !== null) {
+                playMove(selectedIndex, i);
+              }
+            }}
+            imageBaseUrl={imageBaseUrl}
+            cellWidth={150}
+            cellHeight={210}
+          />
+        </div>
+
+        <PlayerHand
+          player={2}
+          cards={hands[2]}
+          currentPlayer={currentPlayer}
+          selectedIndex={selectedIndex}
+          onSelectCard={setSelectedIndex}
+          imageBaseUrl={imageBaseUrl}
+          cardWidth={150}
+          cardHeight={210}
+        />
+      </div>
     </main>
   );
 }
-
